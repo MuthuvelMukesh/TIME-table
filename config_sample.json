@@ -1,0 +1,210 @@
+{
+  "faculty": [
+    {
+      "id": 1,
+      "name": "Dr. S. Geeitha",
+      "department": "IT",
+      "specialization": "AI/ML",
+      "available_slots": {
+        "Monday": [1, 2, 3, 5, 6, 7],
+        "Tuesday": [1, 2, 3, 5, 6, 7],
+        "Wednesday": [1, 2, 3, 5, 6, 7],
+        "Thursday": [1, 2, 3, 5, 6, 7],
+        "Friday": [1, 2, 3, 5, 6, 7]
+      },
+      "is_external": false
+    },
+    {
+      "id": 2,
+      "name": "Ms. K. Anitha",
+      "department": "IT",
+      "specialization": "OS/Systems",
+      "available_slots": {
+        "Monday": [1, 2, 3, 5, 6, 7],
+        "Tuesday": [1, 2, 3, 5, 6, 7],
+        "Wednesday": [1, 2, 5, 6, 7],
+        "Thursday": [1, 2, 3, 5, 6, 7],
+        "Friday": [1, 2, 3, 5, 6, 7]
+      },
+      "is_external": false
+    },
+    {
+      "id": 3,
+      "name": "Dr. P. Nithya",
+      "department": "IT",
+      "specialization": "Database Systems",
+      "available_slots": {
+        "Monday": [1, 2, 3, 5, 6, 7],
+        "Tuesday": [1, 2, 5, 6, 7],
+        "Wednesday": [1, 2, 3, 5, 6, 7],
+        "Thursday": [1, 2, 3, 5, 6, 7],
+        "Friday": [1, 2, 3, 5, 6, 7]
+      },
+      "is_external": false
+    },
+    {
+      "id": 4,
+      "name": "Dr. Mathematics",
+      "department": "MATH",
+      "specialization": "Mathematics",
+      "available_slots": {
+        "Monday": [1, 2, 5, 6],
+        "Tuesday": [1, 2, 5, 6],
+        "Wednesday": [1, 2, 5, 6],
+        "Thursday": [1, 2, 5, 6],
+        "Friday": [1, 2, 5, 6]
+      },
+      "is_external": true
+    }
+  ],
+  "courses": [
+    {
+      "id": 1,
+      "code": "IT301",
+      "name": "Machine Learning Lab",
+      "course_type": "LAB",
+      "credits": 4,
+      "weekly_hours": 2,
+      "required_faculty_ids": [1, 2],
+      "block_size": 2
+    },
+    {
+      "id": 2,
+      "code": "IT302",
+      "name": "Operating Systems",
+      "course_type": "THEORY",
+      "credits": 3,
+      "weekly_hours": 3,
+      "required_faculty_ids": [2],
+      "block_size": 1
+    },
+    {
+      "id": 3,
+      "code": "IT303",
+      "name": "Database Management Systems",
+      "course_type": "THEORY",
+      "credits": 3,
+      "weekly_hours": 3,
+      "required_faculty_ids": [3],
+      "block_size": 1
+    },
+    {
+      "id": 4,
+      "code": "IT304",
+      "name": "Data Structures Lab",
+      "course_type": "LAB",
+      "credits": 4,
+      "weekly_hours": 2,
+      "required_faculty_ids": [2, 3],
+      "block_size": 2
+    },
+    {
+      "id": 5,
+      "code": "MA201",
+      "name": "Discrete Mathematics",
+      "course_type": "THEORY",
+      "credits": 3,
+      "weekly_hours": 3,
+      "required_faculty_ids": [4],
+      "block_size": 1
+    }
+  ],
+  "sections": [
+    {
+      "id": 1,
+      "name": "II Year IT A",
+      "year": 2,
+      "division": "A",
+      "department": "IT"
+    },
+    {
+      "id": 2,
+      "name": "II Year IT B",
+      "year": 2,
+      "division": "B",
+      "department": "IT"
+    }
+  ],
+  "constraints": [
+    {
+      "id": 1,
+      "course_id": 1,
+      "section_id": 1,
+      "block_size": 2,
+      "preferred_days": ["Monday", "Wednesday"],
+      "is_hard": true
+    },
+    {
+      "id": 2,
+      "course_id": 2,
+      "section_id": 1,
+      "block_size": 1,
+      "preferred_days": ["Tuesday", "Thursday"],
+      "is_hard": true
+    },
+    {
+      "id": 3,
+      "course_id": 3,
+      "section_id": 1,
+      "block_size": 1,
+      "preferred_days": ["Monday", "Thursday"],
+      "is_hard": true
+    },
+    {
+      "id": 4,
+      "course_id": 4,
+      "section_id": 1,
+      "block_size": 2,
+      "preferred_days": ["Tuesday", "Friday"],
+      "is_hard": true
+    },
+    {
+      "id": 5,
+      "course_id": 5,
+      "section_id": 1,
+      "block_size": 1,
+      "preferred_days": ["Friday"],
+      "is_hard": true
+    },
+    {
+      "id": 6,
+      "course_id": 1,
+      "section_id": 2,
+      "block_size": 2,
+      "preferred_days": ["Tuesday", "Thursday"],
+      "is_hard": true
+    },
+    {
+      "id": 7,
+      "course_id": 2,
+      "section_id": 2,
+      "block_size": 1,
+      "preferred_days": ["Monday", "Wednesday"],
+      "is_hard": true
+    },
+    {
+      "id": 8,
+      "course_id": 3,
+      "section_id": 2,
+      "block_size": 1,
+      "preferred_days": ["Tuesday", "Friday"],
+      "is_hard": true
+    },
+    {
+      "id": 9,
+      "course_id": 4,
+      "section_id": 2,
+      "block_size": 2,
+      "preferred_days": ["Monday", "Thursday"],
+      "is_hard": true
+    },
+    {
+      "id": 10,
+      "course_id": 5,
+      "section_id": 2,
+      "block_size": 1,
+      "preferred_days": ["Wednesday"],
+      "is_hard": true
+    }
+  ]
+}
