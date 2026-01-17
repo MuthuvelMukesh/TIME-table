@@ -1,10 +1,10 @@
 # TIME-table
 
-A timetable generator application.
+A timetable generator application - DBMS Project.
 
 ## Description
 
-This project is a timetable generator designed to help create and manage schedules efficiently.
+This project is a timetable generator designed to help create and manage schedules efficiently. This was developed as part of my Database Management Systems (DBMS) course project.
 
 ## Features
 
