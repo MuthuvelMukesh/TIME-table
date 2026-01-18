@@ -4,18 +4,93 @@ backend.py - FastAPI Backend for Timetable Generator
 Provides REST API endpoints for timetable generation and data management.
 """
 
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import Session, select
 import json
 from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta
 import pandas as pd
+from passlib.context import CryptContext
+from jose import JWTError, jwt
 
 from database import (
     create_db_and_tables, get_session, engine,
-    Faculty, Course, Section, Constraint, TimetableEntry, init_sample_data
+    Faculty, Course, Section, Constraint, TimetableEntry, init_sample_data,
+    User, Department
 )
 from algorithm import generate_timetable, DAYS, SCHEDULABLE_PERIODS
+
+
+# ============================================================================
+# SECURITY SETUP
+# ============================================================================
+
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# JWT settings
+SECRET_KEY = "your-secret-key-change-in-production"  # Change in production!
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_HOURS = 24
+
+security = HTTPBearer()
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password."""
+    return pwd_context.hash(password)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a JWT access token."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """Verify JWT token and return payload."""
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def get_current_user(
+    token_payload: dict = Depends(verify_token),
+    session: Session = Depends(get_session)
+) -> User:
+    """Get current authenticated user."""
+    username = token_payload.get("sub")
+    if username is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    user = session.exec(select(User).where(User.username == username)).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Inactive user")
+    
+    return user
 
 
 # ============================================================================
@@ -47,6 +122,192 @@ async def startup():
 
 
 # ============================================================================
+# AUTHENTICATION ENDPOINTS
+# ============================================================================
+
+class LoginRequest(SQLModel):
+    """Login request model."""
+    username: str
+    password: str
+
+
+class RegisterRequest(SQLModel):
+    """User registration request model."""
+    username: str
+    email: str
+    password: str
+    full_name: str
+    role: str = "FACULTY"
+    department_id: Optional[int] = None
+
+
+@app.post("/api/auth/register", response_model=dict)
+def register_user(
+    request: RegisterRequest,
+    session: Session = Depends(get_session)
+) -> dict:
+    """Register a new user."""
+    # Check if username already exists
+    existing_user = session.exec(select(User).where(User.username == request.username)).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    # Check if email already exists
+    existing_email = session.exec(select(User).where(User.email == request.email)).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Create new user
+    hashed_password = get_password_hash(request.password)
+    new_user = User(
+        username=request.username,
+        email=request.email,
+        password_hash=hashed_password,
+        full_name=request.full_name,
+        role=request.role,
+        department_id=request.department_id,
+        is_active=True,
+        is_verified=False
+    )
+    
+    session.add(new_user)
+    session.commit()
+    session.refresh(new_user)
+    
+    return {
+        "status": "success",
+        "message": "User registered successfully",
+        "user_id": new_user.id
+    }
+
+
+@app.post("/api/auth/login", response_model=dict)
+def login(
+    request: LoginRequest,
+    session: Session = Depends(get_session)
+) -> dict:
+    """Authenticate user and return JWT token."""
+    # Find user by username
+    user = session.exec(select(User).where(User.username == request.username)).first()
+    
+    if not user or not verify_password(request.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is inactive")
+    
+    # Update last login
+    user.last_login = datetime.utcnow()
+    session.add(user)
+    session.commit()
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.username, "role": user.role})
+    
+    return {
+        "status": "success",
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "department_id": user.department_id
+        }
+    }
+
+
+@app.get("/api/auth/me", response_model=dict)
+def get_current_user_info(
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get current authenticated user information."""
+    return {
+        "status": "success",
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "email": current_user.email,
+            "full_name": current_user.full_name,
+            "role": current_user.role,
+            "department_id": current_user.department_id,
+            "last_login": current_user.last_login
+        }
+    }
+
+
+@app.post("/api/auth/change-password", response_model=dict)
+def change_password(
+    old_password: str,
+    new_password: str,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+) -> dict:
+    """Change user password."""
+    # Verify old password
+    if not verify_password(old_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect old password")
+    
+    # Update password
+    current_user.password_hash = get_password_hash(new_password)
+    session.add(current_user)
+    session.commit()
+    
+    return {
+        "status": "success",
+        "message": "Password changed successfully"
+    }
+
+
+# ============================================================================
+# DEPARTMENT ENDPOINTS
+# ============================================================================
+
+@app.post("/api/department", response_model=dict)
+def create_department(
+    department: Department,
+    session: Session = Depends(get_session)
+) -> dict:
+    """Create a new department."""
+    try:
+        session.add(department)
+        session.commit()
+        session.refresh(department)
+        return {"status": "success", "id": department.id, "data": department}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/department", response_model=dict)
+def list_departments(session: Session = Depends(get_session)) -> dict:
+    """Get all departments."""
+    departments = session.exec(select(Department)).all()
+    return {
+        "status": "success",
+        "count": len(departments),
+        "data": departments
+    }
+
+
+@app.get("/api/department/{department_id}", response_model=dict)
+def get_department(
+    department_id: int,
+    session: Session = Depends(get_session)
+) -> dict:
+    """Get a specific department."""
+    department = session.get(Department, department_id)
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+    return {"status": "success", "data": department}
+
+
+# ============================================================================
 # FACULTY ENDPOINTS
 # ============================================================================
 
@@ -66,9 +327,17 @@ def create_faculty(
 
 
 @app.get("/api/faculty", response_model=dict)
-def list_faculty(session: Session = Depends(get_session)) -> dict:
-    """Get all faculty members."""
-    faculty_list = session.exec(select(Faculty)).all()
+def list_faculty(
+    department_id: Optional[int] = None,
+    session: Session = Depends(get_session)
+) -> dict:
+    """Get all faculty members, optionally filtered by department."""
+    query = select(Faculty)
+    
+    if department_id is not None:
+        query = query.where(Faculty.department_id == department_id)
+    
+    faculty_list = session.exec(query).all()
     return {
         "status": "success",
         "count": len(faculty_list),
@@ -139,9 +408,28 @@ def create_course(
 
 
 @app.get("/api/course", response_model=dict)
-def list_courses(session: Session = Depends(get_session)) -> dict:
-    """Get all courses."""
-    courses = session.exec(select(Course)).all()
+def list_courses(
+    department_id: Optional[int] = None,
+    session: Session = Depends(get_session)
+) -> dict:
+    """Get all courses, optionally filtered by department."""
+    query = select(Course)
+    
+    if department_id is not None:
+        # Get courses for this department or shared with this department
+        courses = session.exec(query).all()
+        filtered_courses = [
+            course for course in courses
+            if course.department_id == department_id or 
+               (course.shared_departments and department_id in course.shared_departments)
+        ]
+        return {
+            "status": "success",
+            "count": len(filtered_courses),
+            "data": filtered_courses
+        }
+    
+    courses = session.exec(query).all()
     return {
         "status": "success",
         "count": len(courses),

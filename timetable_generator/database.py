@@ -7,7 +7,7 @@ using SQLModel (SQLAlchemy + Pydantic hybrid).
 
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from sqlmodel import SQLModel, Field, create_engine, Session
+from sqlmodel import SQLModel, Field, create_engine, Session, select
 from sqlalchemy import JSON, Column
 import json
 
@@ -16,27 +16,116 @@ import json
 # MODELS
 # ============================================================================
 
+class User(SQLModel, table=True):
+    """
+    User Model - For authentication and authorization
+    - id: Unique user identifier
+    - username: Unique username for login
+    - email: User's email address
+    - password_hash: Hashed password (use passlib/bcrypt)
+    - full_name: User's full name
+    - role: User role (ADMIN, HOD, FACULTY, STAFF)
+    - department_id: Associated department (nullable for ADMIN)
+    - is_active: Whether user account is active
+    - is_verified: Whether email is verified
+    - created_at: Account creation timestamp
+    - last_login: Last successful login timestamp
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(unique=True, index=True)
+    email: str = Field(unique=True, index=True)
+    password_hash: str
+    full_name: str
+    role: str = Field(default="FACULTY")  # ADMIN, HOD, FACULTY, STAFF
+    department_id: Optional[int] = Field(default=None, foreign_key="department.id")
+    is_active: bool = Field(default=True)
+    is_verified: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_login: Optional[datetime] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "username": "dr_geeitha",
+                "email": "geeitha@mkce.ac.in",
+                "password_hash": "hashed_password_here",
+                "full_name": "Dr. S. Geeitha",
+                "role": "FACULTY",
+                "department_id": 1,
+                "is_active": True,
+                "is_verified": True
+            }
+        }
+
+
+class Department(SQLModel, table=True):
+    """
+    Department Model - Represents academic departments
+    - id: Unique department identifier
+    - code: Department code (e.g., IT, CSE, ECE)
+    - name: Full department name
+    - hod_user_id: Head of Department user ID
+    - building: Building location
+    - num_sections: Number of sections in department
+    - active: Whether department is currently active
+    - created_at: Department creation timestamp
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str = Field(unique=True, index=True)
+    name: str
+    hod_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    building: Optional[str] = None
+    num_sections: int = Field(default=2)
+    active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "code": "IT",
+                "name": "Information Technology",
+                "building": "Main Block",
+                "num_sections": 2,
+                "active": True
+            }
+        }
+
+
 class Faculty(SQLModel, table=True):
     """
     Faculty Model
     - id: Unique faculty identifier
     - name: Faculty member's name
-    - department: Department affiliation
+    - department: Department affiliation (kept for backward compatibility)
+    - department_id: Foreign key to Department table
+    - user_id: Link to User account (optional)
+    - employee_id: Unique employee identifier
     - specialization: Subject specialization
     - available_slots: JSON dict with {day: [period_list]}
       e.g., {"Monday": [1, 2, 3, 5, 6], "Tuesday": [1, 3, 4, 5]}
       Periods 3 and 6 are after breaks (global constraints).
     - is_external: True for Math/Placement (shared with other depts)
+    - email: Faculty email address
+    - phone: Contact phone number
+    - qualification: Educational qualification (PhD, M.Tech, etc.)
+    - office_location: Office room number
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
-    department: str
+    department: str  # Kept for backward compatibility
+    department_id: Optional[int] = Field(default=None, foreign_key="department.id")
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    employee_id: Optional[str] = Field(default=None, unique=True, index=True)
     specialization: str
     available_slots: Dict[str, List[int]] = Field(
         default_factory=dict,
         sa_column=Column(JSON)
     )
     is_external: bool = False
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    qualification: Optional[str] = None  # PhD, M.Tech, M.E., B.Tech
+    office_location: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
@@ -44,12 +133,16 @@ class Faculty(SQLModel, table=True):
             "example": {
                 "name": "Dr. S. Geeitha",
                 "department": "IT",
+                "department_id": 1,
+                "employee_id": "IT001",
                 "specialization": "AI/ML",
                 "available_slots": {
                     "Monday": [1, 2, 3, 5, 6, 7],
                     "Tuesday": [1, 2, 3, 5, 6, 7]
                 },
-                "is_external": False
+                "is_external": False,
+                "email": "geeitha@mkce.ac.in",
+                "qualification": "PhD"
             }
         }
 
@@ -63,6 +156,8 @@ class Course(SQLModel, table=True):
     - course_type: "THEORY" or "LAB"
     - credits: Credit hours
     - weekly_hours: Hours per week
+    - department_id: Primary department offering this course
+    - shared_departments: List of department IDs that share this course
     - required_faculty_ids: List of faculty IDs required for this course
       For LABs: Must be 2 faculty members (multi-faculty constraint)
     """
@@ -72,6 +167,11 @@ class Course(SQLModel, table=True):
     course_type: str = Field(default="THEORY")  # "THEORY" or "LAB"
     credits: int
     weekly_hours: int
+    department_id: Optional[int] = Field(default=None, foreign_key="department.id")
+    shared_departments: List[int] = Field(
+        default_factory=list,
+        sa_column=Column(JSON)
+    )
     required_faculty_ids: List[int] = Field(
         default_factory=list,
         sa_column=Column(JSON)
@@ -86,6 +186,8 @@ class Course(SQLModel, table=True):
                 "course_type": "LAB",
                 "credits": 4,
                 "weekly_hours": 2,
+                "department_id": 1,
+                "shared_departments": [],
                 "required_faculty_ids": [1, 2]  # Dr. Geeitha + Ms. Anitha
             }
         }
@@ -98,13 +200,15 @@ class Section(SQLModel, table=True):
     - name: Section name (e.g., "II Year IT A")
     - year: Academic year
     - division: "A" or "B"
-    - department: Department code
+    - department: Department code (kept for backward compatibility)
+    - department_id: Foreign key to Department table
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(unique=True, index=True)
     year: int
     division: str
-    department: str
+    department: str  # Kept for backward compatibility
+    department_id: Optional[int] = Field(default=None, foreign_key="department.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
@@ -113,7 +217,8 @@ class Section(SQLModel, table=True):
                 "name": "II Year IT A",
                 "year": 2,
                 "division": "A",
-                "department": "IT"
+                "department": "IT",
+                "department_id": 1
             }
         }
 
@@ -210,12 +315,96 @@ def init_sample_data():
     create_db_and_tables()
     
     with Session(engine) as session:
+        # Create Departments first
+        departments = [
+            Department(
+                code="IT",
+                name="Information Technology",
+                building="Main Block",
+                num_sections=2,
+                active=True
+            ),
+            Department(
+                code="CSE",
+                name="Computer Science and Engineering",
+                building="Main Block",
+                num_sections=3,
+                active=True
+            ),
+            Department(
+                code="ECE",
+                name="Electronics and Communication Engineering",
+                building="ECE Block",
+                num_sections=2,
+                active=True
+            ),
+            Department(
+                code="MATH",
+                name="Mathematics (Shared)",
+                building="Main Block",
+                num_sections=0,
+                active=True
+            )
+        ]
+        for dept in departments:
+            session.add(dept)
+        session.commit()
+        
+        # Get department IDs after commit
+        it_dept = session.exec(select(Department).where(Department.code == "IT")).first()
+        math_dept = session.exec(select(Department).where(Department.code == "MATH")).first()
+        
+        # Create sample users (passwords should be hashed in production)
+        users = [
+            User(
+                username="admin",
+                email="admin@mkce.ac.in",
+                password_hash="admin123_hash",  # In production, use passlib to hash
+                full_name="System Administrator",
+                role="ADMIN",
+                is_active=True,
+                is_verified=True
+            ),
+            User(
+                username="it_hod",
+                email="hod.it@mkce.ac.in",
+                password_hash="hod123_hash",
+                full_name="Dr. IT HOD",
+                role="HOD",
+                department_id=it_dept.id if it_dept else None,
+                is_active=True,
+                is_verified=True
+            ),
+            User(
+                username="dr_geeitha",
+                email="geeitha@mkce.ac.in",
+                password_hash="faculty123_hash",
+                full_name="Dr. S. Geeitha",
+                role="FACULTY",
+                department_id=it_dept.id if it_dept else None,
+                is_active=True,
+                is_verified=True
+            )
+        ]
+        for user in users:
+            session.add(user)
+        session.commit()
+        
+        # Get user ID for linking
+        geeitha_user = session.exec(select(User).where(User.username == "dr_geeitha")).first()
+        
         # Create Faculty
         faculty_data = [
             Faculty(
                 name="Dr. S. Geeitha",
                 department="IT",
+                department_id=it_dept.id if it_dept else None,
+                user_id=geeitha_user.id if geeitha_user else None,
+                employee_id="IT001",
                 specialization="AI/ML",
+                email="geeitha@mkce.ac.in",
+                qualification="PhD",
+                office_location="Block A, Room 301",
                 available_slots={
                     "Monday": [1, 2, 3, 5, 6, 7],
                     "Tuesday": [1, 2, 3, 5, 6, 7],
@@ -228,7 +417,12 @@ def init_sample_data():
             Faculty(
                 name="Ms. K. Anitha",
                 department="IT",
+                department_id=it_dept.id if it_dept else None,
+                employee_id="IT002",
                 specialization="OS/Systems",
+                email="anitha@mkce.ac.in",
+                qualification="M.Tech",
+                office_location="Block A, Room 302",
                 available_slots={
                     "Monday": [1, 2, 3, 5, 6, 7],
                     "Tuesday": [1, 2, 3, 5, 6, 7],
@@ -241,7 +435,11 @@ def init_sample_data():
             Faculty(
                 name="Dr. Mathematics",
                 department="MATH",
+                department_id=math_dept.id if math_dept else None,
+                employee_id="MATH001",
                 specialization="Mathematics",
+                email="math@mkce.ac.in",
+                qualification="PhD",
                 available_slots={
                     "Monday": [1, 2, 5, 6],
                     "Tuesday": [1, 2, 5, 6],
@@ -259,8 +457,20 @@ def init_sample_data():
         
         # Create Sections
         sections = [
-            Section(name="II Year IT A", year=2, division="A", department="IT"),
-            Section(name="II Year IT B", year=2, division="B", department="IT"),
+            Section(
+                name="II Year IT A", 
+                year=2, 
+                division="A", 
+                department="IT",
+                department_id=it_dept.id if it_dept else None
+            ),
+            Section(
+                name="II Year IT B", 
+                year=2, 
+                division="B", 
+                department="IT",
+                department_id=it_dept.id if it_dept else None
+            ),
         ]
         
         for section in sections:
@@ -275,6 +485,8 @@ def init_sample_data():
                 course_type="LAB",
                 credits=4,
                 weekly_hours=2,
+                department_id=it_dept.id if it_dept else None,
+                shared_departments=[],
                 required_faculty_ids=[1, 2]  # Dr. Geeitha + Ms. Anitha
             ),
             Course(
@@ -283,6 +495,8 @@ def init_sample_data():
                 course_type="THEORY",
                 credits=3,
                 weekly_hours=3,
+                department_id=it_dept.id if it_dept else None,
+                shared_departments=[],
                 required_faculty_ids=[2]  # Ms. Anitha
             ),
             Course(
@@ -291,6 +505,8 @@ def init_sample_data():
                 course_type="THEORY",
                 credits=3,
                 weekly_hours=3,
+                department_id=math_dept.id if math_dept else None,
+                shared_departments=[it_dept.id] if it_dept else [],  # Shared with IT
                 required_faculty_ids=[3]  # Dr. Mathematics (external)
             ),
         ]
